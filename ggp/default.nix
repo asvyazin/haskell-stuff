@@ -2,8 +2,8 @@
 
 let
 
-   env = pkgs.haskellngPackages.ghcWithPackages (p: with p; [
-     sexp wai wai-conduit warp conduit-extra conduit-combinators
+   env = pkgs.haskell-ng.packages.ghc784.ghcWithPackages (p: with p; [
+     sexp wai wai-conduit warp conduit-extra conduit-combinators logict
    ]);
 in
 
