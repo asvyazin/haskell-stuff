@@ -21,7 +21,8 @@ toMessage :: Sexp -> Message
 toMessage (List [Atom "INFO"]) = Info
 toMessage (List [Atom "PREVIEW", List description, Atom previewclock]) =
   Preview description $ toInt previewclock
-toMessage (List [Atom "START", Atom id_, Atom role, List description, Atom startclock, Atom playclock]) = Start id_ role description (toInt startclock) (toInt playclock)
+toMessage (List [Atom "START", Atom id_, Atom role, List description, Atom startclock, Atom playclock]) =
+  Start id_ role description (toInt startclock) (toInt playclock)
 toMessage (List [Atom "PLAY", Atom id_, List move]) = Play id_ move
 toMessage (List [Atom "STOP", Atom id_, List move]) = Stop id_ move
 toMessage (List [Atom "ABORT", Atom id_]) = Abort id_
