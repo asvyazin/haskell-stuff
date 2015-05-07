@@ -33,8 +33,8 @@ data Database = Database { facts :: [Fact]
 type Substitution = M.Map Name Term
 
 toProposition :: Sexp -> Proposition
+toProposition (Atom name) = Proposition name []
 toProposition (List sexps) = toProposition' sexps
-toProposition sexp = error $ "Invalid proposition: " ++ show sexp
 
 toProposition' :: [Sexp] -> Proposition
 toProposition' (Atom name : sexps) = Proposition name $ map toTerm sexps
@@ -105,8 +105,11 @@ unify _ _ = mzero
 toMonadPlus :: MonadPlus m => [a] -> m a
 toMonadPlus = msum . map return
 
-matchQuery :: MonadLogic m => Term -> Database -> m Substitution
-matchQuery query database = tryMatchCustomProposition query database
+matchQuery :: Term -> Database -> [Substitution]
+matchQuery query database = observeAll $ doMatchQuery query database
+
+doMatchQuery :: MonadLogic m => Term -> Database -> m Substitution
+doMatchQuery query database = tryMatchCustomProposition query database
                             `mplus`
                             tryMatchFacts query database
 
@@ -128,10 +131,10 @@ matchFact (FactR (Rule thenPart ifPart)) query database = do
   subprop <- liftM (applyToRule subst) (toMonadPlus ifPart)
   case subprop of
     RuleP p -> do
-      subst' <- matchQuery (P p) database
+      subst' <- doMatchQuery (P p) database
       return $ M.union subst subst'
     RuleN p -> do
-      lnot $ once $ matchQuery (P p) database
+      lnot $ once $ doMatchQuery (P p) database
       return subst
     where applyToRule subst (RuleP p) = RuleP $ apply' subst p
           applyToRule subst (RuleN p) = RuleN $ apply' subst p
