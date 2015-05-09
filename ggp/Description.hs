@@ -23,14 +23,15 @@ data Proposition = Proposition Name [Term] deriving (Eq, Show)
 data RuleProposition = RuleP Proposition -- Proposition
                      | RuleN Proposition -- Negation
                      deriving (Eq, Show)
+                              
 data Rule = Rule Proposition [RuleProposition] deriving (Eq, Show)
 
 data Fact = FactP Proposition | FactR Rule deriving (Eq, Show)
 
-data Database = Database { facts :: [Fact]
-                         , customPropositions :: M.Map Name ([Term] -> Bool) }
-
 type Substitution = M.Map Name Term
+
+data Database = Database { facts :: [Fact]
+                         , customPropositions :: M.Map Name ([Term] -> Maybe [Substitution]) }
 
 toProposition :: Sexp -> Proposition
 toProposition (Atom name) = Proposition name []
@@ -56,7 +57,8 @@ addFact f = modify $ \s -> s { facts = f : facts s }
 
 initDatabase :: Database
 initDatabase = Database [] $ M.fromList [("DISTINCT", distinct)]
-  where distinct [t1, t2] = t1 /= t2
+  where distinct [t1, t2] | t1 /= t2 = Just []
+                          | otherwise = Nothing
         distinct _ = error "Invalid arguments"
 
 loadDatabase :: [Sexp] -> State Database ()
@@ -121,7 +123,7 @@ tryMatchFacts query database = do
 tryMatchCustomProposition :: MonadPlus m => Term -> Database -> m Substitution
 tryMatchCustomProposition (P (Proposition name args)) database = case M.lookup name (customPropositions database) of
   Nothing -> mzero
-  Just func -> if func args then return M.empty else mzero
+  Just func -> maybe mzero toMonadPlus (func args)
 tryMatchCustomProposition _ _ = mzero
 
 matchFact :: MonadLogic m => Fact -> Term -> Database -> m Substitution
