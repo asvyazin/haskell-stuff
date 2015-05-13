@@ -3,6 +3,7 @@
 import Control.Applicative
 import Control.Concurrent.STM
 import Control.Monad.IO.Class
+import Control.Monad.Logger
 import Control.Monad.State
 import Control.Monad.Trans.Resource
 import Data.Conduit
@@ -21,7 +22,7 @@ import Description
 import Game
 import Protocol
 
-logConduit :: Show a => Conduit a IO a
+logConduit :: (MonadIO m, Show a) => Conduit a m a
 logConduit = awaitForever $ \x -> do
   liftIO $ print x
   yield x
@@ -29,25 +30,24 @@ logConduit = awaitForever $ \x -> do
 readMessage :: (MonadIO m, MonadThrow m) => Request -> Source m Message
 readMessage req = sourceRequestBody req =$= conduitParser sexpParser =$= L.map (toMessage . snd)
 
-processMessage :: Message -> TMVar Game -> STM Sexp
+processMessage :: (MonadIO m, MonadLogger m) => Message -> TMVar Game -> m Sexp
 processMessage Info _ = return $ Atom "available"
 processMessage (Preview _ _) _ = undefined
-processMessage (Start id_ role description startclock playclock) var = let database = execState (loadDatabase description) initDatabase
-                                                                           game = Game id_ role startclock playclock database
-                                                                       in do putTMVar var game
+processMessage (Start id_ role description startclock playclock) var = let game = initGame id_ role description startclock playclock
+                                                                       in do liftIO $ atomically $ putTMVar var game
                                                                              return $ Atom "ready"
-processMessage (Play _ _) _ = undefined
+processMessage (Play _ moves) var = do
+  game <- liftIO $ atomically $ takeTMVar var
+  (move, newGame) <- runStateT (doPlay (map toProposition moves)) game
+  liftIO $ atomically $ putTMVar var newGame
+  return $ fromProposition move
 processMessage (Stop _ _) _ = undefined
 processMessage (Abort _) _ = undefined
 
 app :: TMVar Game -> Application
 app var req respond = do
   msg <- fromJust <$> runConduit (readMessage req =$= L.head)
-  Prelude.putStrLn $ "received " ++ show msg
-  response <- atomically $ processMessage msg var
-  game <- atomically $ readTMVar var
-  Prelude.putStrLn $ "roles: " ++ show (roles game)
-  Prelude.putStrLn $ "init: " ++ show (inits game)
+  response <- runStderrLoggingT $ processMessage msg var
   respond $ responseLBS
     status200
     [("Content-Type", "text/acl")]
