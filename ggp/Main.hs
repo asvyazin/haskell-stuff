@@ -41,8 +41,8 @@ processMessage (Play _ moves) var = do
   (move, newGame) <- runStateT (doPlay (map toProposition moves)) game
   liftIO $ atomically $ putTMVar var newGame
   return $ fromProposition move
-processMessage (Stop _ _) _ = undefined
-processMessage (Abort _) _ = undefined
+processMessage (Stop _ _) _ = return $ Atom "done"
+processMessage (Abort _) _ = return $ Atom "done"
 
 app :: TMVar Game -> Application
 app var req respond = do
