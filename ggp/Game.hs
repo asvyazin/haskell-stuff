@@ -3,7 +3,6 @@
 
 module Game where
 
-import Control.Applicative
 import Control.Monad.Logger
 import Control.Monad.State
 import Data.ByteString.Lazy

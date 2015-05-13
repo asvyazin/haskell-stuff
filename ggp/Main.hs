@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 import Control.Applicative
@@ -8,7 +9,9 @@ import Control.Monad.State
 import Control.Monad.Trans.Resource
 import Data.Conduit
 import Data.Conduit.Attoparsec
+import qualified Data.ByteString.Lazy as B
 import qualified Data.Conduit.List as L
+import qualified Data.Map as M
 import Data.Maybe
 import Data.Sexp
 import Language.Sexp.Parser
@@ -17,10 +20,24 @@ import Network.HTTP.Types
 import Network.Wai
 import Network.Wai.Conduit
 import Network.Wai.Handler.Warp (run)
+import System.Environment
 
 import Description
 import Game
 import Protocol
+
+type Games = M.Map B.ByteString Game
+
+setGame :: TMVar Games -> B.ByteString -> Game -> STM ()
+setGame var id_ game = takeTMVar var >>= (putTMVar var . M.insert id_ game)
+
+getGame :: TMVar Games -> B.ByteString -> STM Game
+getGame var id_ = do
+  games <- readTMVar var
+  return $ games M.! id_
+
+deleteGame :: TMVar Games -> B.ByteString -> STM ()
+deleteGame var id_ = takeTMVar var >>= (putTMVar var . M.delete id_)
 
 logConduit :: (MonadIO m, Show a) => Conduit a m a
 logConduit = awaitForever $ \x -> do
@@ -30,21 +47,25 @@ logConduit = awaitForever $ \x -> do
 readMessage :: (MonadIO m, MonadThrow m) => Request -> Source m Message
 readMessage req = sourceRequestBody req =$= conduitParser sexpParser =$= L.map (toMessage . snd)
 
-processMessage :: (MonadIO m, MonadLogger m) => Message -> TMVar Game -> m Sexp
+processMessage :: (MonadIO m, MonadLogger m) => Message -> TMVar Games -> m Sexp
 processMessage Info _ = return $ Atom "available"
 processMessage (Preview _ _) _ = undefined
 processMessage (Start id_ role description startclock playclock) var = let game = initGame id_ role description startclock playclock
-                                                                       in do liftIO $ atomically $ putTMVar var game
+                                                                       in do liftIO $ atomically $ setGame var id_ game
                                                                              return $ Atom "ready"
-processMessage (Play _ moves) var = do
-  game <- liftIO $ atomically $ takeTMVar var
+processMessage (Play id_ moves) var = do
+  game <- liftIO $ atomically $ getGame var id_
   (move, newGame) <- runStateT (doPlay (map toProposition moves)) game
-  liftIO $ atomically $ putTMVar var newGame
+  liftIO $ atomically $ setGame var id_ newGame
   return $ fromProposition move
-processMessage (Stop _ _) _ = return $ Atom "done"
-processMessage (Abort _) _ = return $ Atom "done"
+processMessage (Stop id_ _) var = do
+  liftIO $ atomically $ deleteGame var id_
+  return $ Atom "done"
+processMessage (Abort id_) var = do
+  liftIO $ atomically $ deleteGame var id_
+  return $ Atom "done"
 
-app :: TMVar Game -> Application
+app :: TMVar Games -> Application
 app var req respond = do
   msg <- fromJust <$> runConduit (readMessage req =$= L.head)
   response <- runStderrLoggingT $ processMessage msg var
@@ -55,5 +76,9 @@ app var req respond = do
 
 main :: IO ()
 main = do
-  game <- atomically newEmptyTMVar
-  run 9147 $ app game
+  args <- getArgs
+  let port = case args of
+        [portStr] -> read portStr
+        _ -> 9147
+  games <- atomically $ newTMVar M.empty
+  run port $ app games
