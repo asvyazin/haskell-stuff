@@ -50,9 +50,10 @@ readMessage req = sourceRequestBody req =$= conduitParser sexpParser =$= L.map (
 processMessage :: (MonadIO m, MonadLogger m) => Message -> TMVar Games -> m Sexp
 processMessage Info _ = return $ Atom "available"
 processMessage (Preview _ _) _ = undefined
-processMessage (Start id_ role description startclock playclock) var = let game = initGame id_ role description startclock playclock
-                                                                       in do liftIO $ atomically $ setGame var id_ game
-                                                                             return $ Atom "ready"
+processMessage (Start id_ role description startclock playclock) var = do
+  let game = initGame id_ role description startclock playclock
+  liftIO $ atomically $ setGame var id_ game
+  return $ Atom "ready"
 processMessage (Play id_ moves) var = do
   game <- liftIO $ atomically $ getGame var id_
   (move, newGame) <- runStateT (doPlay (map toProposition moves)) game
