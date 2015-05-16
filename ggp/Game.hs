@@ -31,7 +31,8 @@ unwrapProposition (P p) = p
 unwrapProposition _ = error "Not proposition"
 
 simpleProposition :: Name -> Database -> [Term]
-simpleProposition name database = Prelude.map (! "x") $ matchQuery database (P (Proposition name [V "x"]))
+simpleProposition name database =
+  Prelude.map (! "x") $ matchQuery database (P (Proposition name [V "x"]))
 
 getRoles :: Database -> [ByteString]
 getRoles = Prelude.map fromAtom . simpleProposition "ROLE"
@@ -43,18 +44,21 @@ getNext :: Database -> [Proposition]
 getNext = Prelude.map unwrapProposition . simpleProposition "NEXT"
 
 getLegalMoves :: Database -> ByteString -> [Proposition]
-getLegalMoves database role = Prelude.map (unwrapProposition . (! "x")) $ matchQuery database (P (Proposition "LEGAL" [A role, V "x"]))
+getLegalMoves database role =
+  Prelude.map (unwrapProposition . (! "x")) $ matchQuery database (P (Proposition "LEGAL" [A role, V "x"]))
 
 computeInits :: Monad m => StateT Database m ()
 computeInits = get >>= (setDynamicFacts . getInits)
 
 loadDatabase :: Monad m => [Sexp] -> StateT Database m ()
-loadDatabase sexps = let fs = remapFacts $ Prelude.map toFact sexps
-                     in setFacts fs >> computeInits
+loadDatabase sexps =
+  let fs = remapFacts $ Prelude.map toFact sexps
+  in setFacts fs >> computeInits
 
 modifyDatabase :: Monad m => (Database -> Database) -> StateT Game m ()
-modifyDatabase func = modify $ \g -> let newD = func $ gameDatabase g
-                                     in g { gameDatabase = newD }
+modifyDatabase func =
+  modify $ \g -> let newD = func $ gameDatabase g
+                 in g { gameDatabase = newD }
 
 toGameState :: Monad m => StateT Database m r -> StateT Game m r
 toGameState s = do
@@ -79,6 +83,7 @@ doPlay moves = do
   $(logDebug) $ L.toStrict $ "Legal moves: {}" `format` (Only $ Shown legalMoves)
   return $ Prelude.head legalMoves
 
-initGame :: ByteString -> Name -> [Sexp] -> Int -> Int -> Game
-initGame id_ role description startclock playclock = let database = execState (loadDatabase description) initDatabase
-                                                     in Game id_ role startclock playclock database
+initGame :: ByteString -> ByteString -> [Sexp] -> Int -> Int -> Game
+initGame id_ role description startclock playclock =
+  let database = execState (loadDatabase description) initDatabase
+  in Game id_ role startclock playclock database

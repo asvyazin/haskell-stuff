@@ -3,16 +3,18 @@ module Types where
 import qualified Data.ByteString.Lazy.Char8 as L
 import qualified Data.Map as M
 
-type Name = L.ByteString
+import CIByteString
+
+type Name = CIByteString
 type Value = L.ByteString
 
 data Term = A Value -- Atom
           | V Name -- Variable
           | P Proposition -- Proposition
           | N Proposition -- Negation
-          deriving (Eq, Show)
+          deriving (Eq, Show, Ord)
 
-data Proposition = Proposition Name [Term] deriving (Eq, Show)
+data Proposition = Proposition Name [Term] deriving (Eq, Show, Ord)
 
 data RuleProposition = RuleP Proposition -- Proposition
                      | RuleN Proposition -- Negation

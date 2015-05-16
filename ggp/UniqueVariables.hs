@@ -6,6 +6,7 @@ import Control.Monad.State
 import Data.ByteString.Lazy.Char8
 import qualified Data.Map as M
 
+import CIByteString
 import Types
 
 data RemapState = RemapState { currentVariable :: Int
@@ -20,7 +21,7 @@ getNextVariable = do
   s <- get
   let var = currentVariable s
   put $ s { currentVariable = var + 1 }
-  return $ pack $ "v" ++ show var
+  return $ toCI $ pack $ "v" ++ show var
 
 addMapping :: Monad m => Name -> Name -> StateT RemapState m ()
 addMapping from to = modify $ \s -> s { currentMap = M.insert from to (currentMap s) }

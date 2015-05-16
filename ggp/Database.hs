@@ -4,14 +4,17 @@ module Database where
 
 import Control.Monad.Logic
 import Control.Monad.State
+import qualified Data.ByteString.Lazy as B
+import qualified Data.Foldable as F
 import qualified Data.Map as M
+import qualified Data.Set as S
 
 import Types
 import Unify
 
 data Database = Database { facts :: [Fact]
                          , dynamicFacts :: [Proposition]
-                         , lastMoves :: M.Map Name Term
+                         , lastMoves :: M.Map B.ByteString Term
                          , customPropositions :: M.Map Name (Database -> [Term] -> [Substitution]) }
 
 setFacts :: Monad m => [Fact] -> StateT Database m ()
@@ -23,7 +26,7 @@ addDynamicFact p = modify $ \s -> s { dynamicFacts = p : dynamicFacts s }
 setDynamicFacts :: Monad m => [Proposition] -> StateT Database m ()
 setDynamicFacts p = modify $ \s -> s { dynamicFacts = p }
 
-setLastMoves :: Monad m => [(Name, Term)] -> StateT Database m ()
+setLastMoves :: Monad m => [(B.ByteString, Term)] -> StateT Database m ()
 setLastMoves pairs = modify $ \s -> s { lastMoves = M.fromList pairs }
 
 initDatabase :: Database
@@ -40,11 +43,11 @@ initDatabase = Database [] [] M.empty $
         ggpDoes _ _ = error "Does. Invalid arguments"
 
 matchQuery :: Database -> Term -> [Substitution]
-matchQuery database = observeAll . doMatchQuery database
+matchQuery database = uniqL . observeAll . doMatchQuery database
 
 doMatchQuery :: MonadLogic m => Database -> Term -> m Substitution
 doMatchQuery database query = tryMatchCustomProposition database query
-                            `mplus`
+                            `interleave`
                             tryMatchFacts database query
 
 tryMatchFacts :: MonadLogic m => Database -> Term -> m Substitution
@@ -78,5 +81,16 @@ matchFact database query (FactR (Rule thenPart ifPart)) = do
     where applyToRule subst (RuleP p) = RuleP $ apply' subst p
           applyToRule subst (RuleN p) = RuleN $ apply' subst p
 
-toMonadPlus :: MonadPlus m => [a] -> m a
-toMonadPlus = msum . map return
+toMonadPlus :: (F.Foldable t, MonadPlus m) => t a -> m a
+toMonadPlus = F.foldl (\x y -> x `mplus` return y) mzero
+
+uniqL :: Ord a => [a] -> [a]
+uniqL = reverse . fst . uniqL' where
+  uniqL' [] = ([], S.empty)
+  uniqL' (x:xs) =
+    let (prevL, prevS) = uniqL' xs
+        nextL =
+          if S.member x prevS
+          then prevL
+          else x : prevL
+    in (nextL, S.insert x prevS)
