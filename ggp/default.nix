@@ -3,7 +3,7 @@
 let
 
    env = pkgs.haskell-ng.packages.ghc784.ghcWithPackages (p: with p; [
-     sexp wai wai-conduit warp conduit-extra conduit-combinators logict stm monad-logger text-format
+     sexp wai wai-conduit warp conduit-extra conduit-combinators logict stm monad-logger text-format MonadRandom
    ]);
 in
 

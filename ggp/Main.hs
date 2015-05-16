@@ -4,6 +4,7 @@ import Control.Applicative
 import Control.Concurrent.STM
 import Control.Monad.IO.Class
 import Control.Monad.Logger
+import Control.Monad.Random
 import Control.Monad.State
 import Control.Monad.Trans.Resource
 import Data.Conduit
@@ -46,7 +47,7 @@ logConduit = awaitForever $ \x -> do
 readMessage :: (MonadIO m, MonadThrow m) => Request -> Source m Message
 readMessage req = sourceRequestBody req =$= logConduit =$= conduitParser sexpParser =$= L.map (toMessage . snd)
 
-processMessage :: (MonadIO m, MonadLogger m) => Message -> TMVar Games -> m Sexp
+processMessage :: (MonadIO m, MonadLogger m, MonadRandom m) => Message -> TMVar Games -> m Sexp
 processMessage Info _ = return $ Atom "available"
 processMessage (Preview _ _) _ = undefined
 processMessage (Start id_ role description startclock playclock) var =
@@ -65,6 +66,12 @@ processMessage (Abort id_) var = do
   liftIO $ atomically $ deleteGame var id_
   return $ Atom "done"
 
+instance MonadRandom m => MonadRandom (LoggingT m) where
+  getRandom = lift getRandom
+  getRandomR = lift . getRandomR
+  getRandoms = lift getRandoms
+  getRandomRs = lift . getRandomRs
+                  
 app :: TMVar Games -> Application
 app var req respond = do
   msg <- fromJust <$> runConduit (readMessage req =$= L.head)

@@ -4,6 +4,7 @@
 module Game where
 
 import Control.Monad.Logger
+import Control.Monad.Random
 import Control.Monad.State
 import Data.ByteString.Lazy
 import Data.Map
@@ -67,7 +68,12 @@ toGameState s = do
   put $ g { gameDatabase = newD }
   return r
 
-doPlay :: MonadLogger m => [Proposition] -> StateT Game m Proposition
+initGame :: ByteString -> ByteString -> [Sexp] -> Int -> Int -> Game
+initGame id_ role description startclock playclock =
+  let database = execState (loadDatabase description) initDatabase
+  in Game id_ role startclock playclock database
+
+doPlay :: (MonadLogger m, MonadRandom m) => [Proposition] -> StateT Game m Proposition
 doPlay moves = do
   roles <- liftM (getRoles . gameDatabase) get
   $(logDebug) $ L.toStrict $ "Moves: {}" `format` (Only $ Shown moves)
@@ -81,9 +87,4 @@ doPlay moves = do
   game <- get
   let legalMoves = getLegalMoves (gameDatabase game) (gameRole game)
   $(logDebug) $ L.toStrict $ "Legal moves: {}" `format` (Only $ Shown legalMoves)
-  return $ Prelude.head legalMoves
-
-initGame :: ByteString -> ByteString -> [Sexp] -> Int -> Int -> Game
-initGame id_ role description startclock playclock =
-  let database = execState (loadDatabase description) initDatabase
-  in Game id_ role startclock playclock database
+  uniform legalMoves
