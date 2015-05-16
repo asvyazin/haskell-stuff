@@ -15,7 +15,7 @@ fromTerm :: Term -> Sexp
 fromTerm (A a) = Atom a
 fromTerm (V v) = Atom $ "?" `L.append` toBS v
 fromTerm (P p) = fromProposition p
-fromTerm (N p) = List [Atom "NOT", fromProposition p]
+fromTerm (N p) = List [Atom "not", fromProposition p]
 
 toProposition :: Sexp -> Proposition
 toProposition (Atom name) = Proposition (toCI name) []
@@ -31,7 +31,9 @@ toTerm (Atom atom) | L.head atom == '?' = V (toCI (L.tail atom))
 toTerm sexp = P $ toProposition sexp
 
 toFact :: Sexp -> Fact
-toFact (List (Atom "<=" : thenPart : ifPart)) = FactR $ Rule (toProposition thenPart) (map toRuleProposition ifPart)
-  where toRuleProposition (List [Atom "NOT", List sexps]) = RuleN $ toProposition' sexps
+toFact (List (Atom "<=" : thenPart : ifPart)) =
+  FactR $ Rule (toProposition thenPart) (map toRuleProposition ifPart)
+  where toRuleProposition (List [Atom notStr, List sexps])
+          | toCI notStr == "not" = RuleN $ toProposition' sexps
         toRuleProposition sexp = RuleP $ toProposition sexp
 toFact sexp = FactP $ toProposition sexp
