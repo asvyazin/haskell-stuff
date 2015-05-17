@@ -12,6 +12,7 @@ import Data.Text.Format
 import qualified Data.Text.Lazy as L
 import Language.Sexp
 
+import CIByteString
 import Database
 import Description
 import Types
@@ -25,36 +26,37 @@ data Game = Game { gameId :: ByteString
 
 fromAtom :: Term -> Value
 fromAtom (A val) = val
-fromAtom _ = error "Not atom"
+fromAtom x = error $ "Not atom: " ++ show x
 
 unwrapProposition :: Term -> Proposition
 unwrapProposition (P p) = p
-unwrapProposition _ = error "Not proposition"
+unwrapProposition x = error $ "Not proposition: " ++ show x
 
 simpleProposition :: Name -> Database -> [Term]
 simpleProposition name database =
-  Prelude.map (! "x") $ matchQuery database (P (Proposition name [V "x"]))
+  uniqL $ Prelude.map (! 0) $ matchQuery database (P (Proposition name [V 0]))
 
 getRoles :: Database -> [ByteString]
-getRoles = Prelude.map fromAtom . simpleProposition "ROLE"
+getRoles = Prelude.map fromAtom . simpleProposition "role"
 
 getInits :: Database -> [Proposition]
-getInits = Prelude.map unwrapProposition . simpleProposition "INIT"
+getInits = Prelude.map unwrapProposition . simpleProposition "init"
 
 getNext :: Database -> [Proposition]
-getNext = Prelude.map unwrapProposition . simpleProposition "NEXT"
+getNext = Prelude.map unwrapProposition . simpleProposition "next"
 
 getLegalMoves :: Database -> ByteString -> [Proposition]
 getLegalMoves database role =
-  Prelude.map (unwrapProposition . (! "x")) $ matchQuery database (P (Proposition "LEGAL" [A role, V "x"]))
+  Prelude.map (unwrapMove . (! 0)) $ matchQuery database (P (Proposition "legal" [A role, V 0]))
+  where unwrapMove (P p) = p
+        unwrapMove (A a) = Proposition (toCI a) []
+        unwrapMove x = error $ "Invalid move: " ++ show x
 
 computeInits :: Monad m => StateT Database m ()
 computeInits = get >>= (setDynamicFacts . getInits)
 
 loadDatabase :: Monad m => [Sexp] -> StateT Database m ()
-loadDatabase sexps =
-  let fs = remapFacts $ Prelude.map toFact sexps
-  in setFacts fs >> computeInits
+loadDatabase sexps = evalStateT (mapM toFact sexps) emptyRemapState >>= setFacts >> computeInits
 
 modifyDatabase :: Monad m => (Database -> Database) -> StateT Game m ()
 modifyDatabase func =

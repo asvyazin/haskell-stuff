@@ -20,14 +20,14 @@ combineSubstitutions s = M.union s . applyToSubstitution s
 applyToSubstitution :: Substitution -> Substitution -> Substitution
 applyToSubstitution s = M.map $ apply s
 
-containsVar :: Name -> Term -> Bool
+containsVar :: VariableName -> Term -> Bool
 containsVar name (V name')
   | name' == name = True
   | otherwise = False
 containsVar name (P (Proposition _ terms)) = any (containsVar name) terms
 containsVar _ _ = False
 
-unifyVar :: MonadPlus m => Name -> Term -> m Substitution
+unifyVar :: MonadPlus m => VariableName -> Term -> m Substitution
 unifyVar name term
   | containsVar name term = mzero
   | otherwise = return $ M.fromList [(name, term)]

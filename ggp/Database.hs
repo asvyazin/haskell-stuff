@@ -6,6 +6,7 @@ import Control.Monad.Logic
 import Control.Monad.State
 import qualified Data.ByteString.Lazy as B
 import qualified Data.Foldable as F
+import Data.List
 import qualified Data.Map as M
 import qualified Data.Set as S
 
@@ -31,16 +32,21 @@ setLastMoves pairs = modify $ \s -> s { lastMoves = M.fromList pairs }
 
 initDatabase :: Database
 initDatabase = Database [] [] M.empty $
-               M.fromList [("DISTINCT", ggpDistinct), ("TRUE", ggpTrue), ("DOES", ggpDoes)]
+               M.fromList [("distinct", ggpDistinct), ("true", ggpTrue), ("does", ggpDoes)]
   where ggpDistinct _ [t1, t2] | t1 /= t2 = [M.empty]
                                | otherwise = []
         ggpDistinct _ _ = error "Distinct. Invalid arguments"
-        ggpTrue d [t] = observeAll $ tryMatchDynamicFacts (toMonadPlus $ dynamicFacts d) t
+        ggpTrue d [t] = uniqL $ observeAll $ tryMatchDynamicFacts (toMonadPlus $ dynamicFacts d) t
         ggpTrue _ _ = error "True. Invalid arguments"
         ggpDoes d [A role, termMove] = case M.lookup role (lastMoves d) of
-          Nothing -> mzero
-          Just lastMove -> unify termMove lastMove
-        ggpDoes _ _ = error "Does. Invalid arguments"
+          Nothing -> []
+          Just lastMove -> uniqL $ observeAll $ unify termMove lastMove
+        ggpDoes d [V role, termMove] = uniqL $ observeAll $ do
+          (r, move) <- toMonadPlus $ M.toList (lastMoves d)
+          let subst' = M.fromList [(role, A r)]
+          let move' = apply subst' move
+          unify termMove move'
+        ggpDoes _ x = error $ "Does. Invalid arguments: " ++ show x
 
 matchQuery :: Database -> Term -> [Substitution]
 matchQuery database = uniqL . observeAll . doMatchQuery database
@@ -72,12 +78,13 @@ matchFact :: MonadLogic m => Database -> Term -> Fact -> m Substitution
 matchFact _ query (FactP prop) = unify (P prop) query
 matchFact database query (FactR (Rule thenPart ifPart)) = do
   subst <- unify (P thenPart) query
-  foldM (\ s p -> let p1 = applyToRule s p
-                  in do
-                    s' <- case p1 of
-                      RuleP p2 -> doMatchQuery database (P p2)
-                      RuleN p2 -> lnot (once $ doMatchQuery database (P p2)) >> return M.empty
-                    return $ combineSubstitutions s' s) subst ifPart
+  foldM (\ s p ->
+          let p1 = applyToRule s p
+          in do
+            s' <- case p1 of
+              RuleP p2 -> doMatchQuery database (P p2)
+              RuleN p2 -> lnot (once $ doMatchQuery database (P p2)) >> return M.empty
+            return $ combineSubstitutions s' s) subst ifPart
     where applyToRule subst (RuleP p) = RuleP $ apply' subst p
           applyToRule subst (RuleN p) = RuleN $ apply' subst p
 
@@ -85,12 +92,6 @@ toMonadPlus :: (F.Foldable t, MonadPlus m) => t a -> m a
 toMonadPlus = F.foldl (\x y -> x `mplus` return y) mzero
 
 uniqL :: Ord a => [a] -> [a]
-uniqL = reverse . fst . uniqL' where
-  uniqL' [] = ([], S.empty)
-  uniqL' (x:xs) =
-    let (prevL, prevS) = uniqL' xs
-        nextL =
-          if S.member x prevS
-          then prevL
-          else x : prevL
-    in (nextL, S.insert x prevS)
+uniqL = reverse . fst . foldl' (\ (prevL, prevS) x ->
+                                 let nextL = if S.member x prevS then prevL else x : prevL
+                                 in (nextL, S.insert x prevS)) ([], S.empty)

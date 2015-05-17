@@ -56,9 +56,11 @@ processMessage (Start id_ role description startclock playclock) var =
         return $ Atom "ready"
 processMessage (Play id_ moves) var = do
   game <- liftIO $ atomically $ getGame var id_
-  (move, newGame) <- runStateT (doPlay (map toProposition moves)) game
+  parsedMoves <- mapM (`toProposition` failVariable) moves
+  (move, newGame) <- runStateT (doPlay parsedMoves) game
   liftIO $ atomically $ setGame var id_ newGame
   return $ fromProposition move
+    where failVariable _ = fail "Variable is not possible here"
 processMessage (Stop id_ _) var = do
   liftIO $ atomically $ deleteGame var id_
   return $ Atom "done"

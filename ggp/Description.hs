@@ -2,38 +2,40 @@
 
 module Description where
 
+import Control.Monad.State
 import qualified Data.ByteString.Lazy.Char8 as L
 import Language.Sexp
 
 import CIByteString
 import Types
+import UniqueVariables
 
 fromProposition :: Proposition -> Sexp
 fromProposition (Proposition name terms) = List (Atom (toBS name) : map fromTerm terms)
 
 fromTerm :: Term -> Sexp
 fromTerm (A a) = Atom a
-fromTerm (V v) = Atom $ "?" `L.append` toBS v
+fromTerm (V v) = Atom $ "?v" `L.append` L.pack (show v)
 fromTerm (P p) = fromProposition p
 fromTerm (N p) = List [Atom "not", fromProposition p]
 
-toProposition :: Sexp -> Proposition
-toProposition (Atom name) = Proposition (toCI name) []
-toProposition (List sexps) = toProposition' sexps
+toProposition :: Monad m => Sexp -> (Name -> m VariableName) -> m Proposition
+toProposition (Atom name) _ = return $ Proposition (toCI name) []
+toProposition (List (Atom name : sexps)) remapVar =
+  liftM (Proposition (toCI name)) (mapM (`toTerm` remapVar) sexps)
+toProposition sexps _ = fail $ "Invalid proposition: " ++ show sexps
 
-toProposition' :: [Sexp] -> Proposition
-toProposition' (Atom name : sexps) = Proposition (toCI name) $ map toTerm sexps
-toProposition' sexps = error $ "Invalid proposition: " ++ show sexps
+toTerm :: Monad m => Sexp -> (Name -> m VariableName) -> m Term
+toTerm (Atom atom) remapVar
+  | L.head atom == '?' = liftM V $ remapVar $ toCI $ L.tail atom
+  | otherwise = return $ A atom
+toTerm sexp remapVar = liftM P $ toProposition sexp remapVar
 
-toTerm :: Sexp -> Term
-toTerm (Atom atom) | L.head atom == '?' = V (toCI (L.tail atom))
-                   | otherwise = A atom
-toTerm sexp = P $ toProposition sexp
-
-toFact :: Sexp -> Fact
-toFact (List (Atom "<=" : thenPart : ifPart)) =
-  FactR $ Rule (toProposition thenPart) (map toRuleProposition ifPart)
-  where toRuleProposition (List [Atom notStr, List sexps])
-          | toCI notStr == "not" = RuleN $ toProposition' sexps
-        toRuleProposition sexp = RuleP $ toProposition sexp
-toFact sexp = FactP $ toProposition sexp
+toFact :: Monad m => Sexp -> StateT RemapState m Fact
+toFact sexp = enterNewFact >> case sexp of
+  (List (Atom "<=" : thenPart : ifPart)) ->
+    liftM FactR $ liftM2 Rule (toProposition thenPart remapVariable) (mapM toRuleProposition ifPart)
+    where toRuleProposition (List [Atom notStr, sexps])
+            | toCI notStr == "not" = liftM RuleN $ toProposition sexps remapVariable
+          toRuleProposition sexp1 = liftM RuleP $ toProposition sexp1 remapVariable
+  _ -> liftM FactP $ toProposition sexp remapVariable
