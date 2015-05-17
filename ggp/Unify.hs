@@ -41,7 +41,7 @@ unify' (t1 : terms1) (t2 : terms2) = do
   let newTerms1 = map (apply subst) terms1
   let newTerms2 = map (apply subst) terms2
   subst' <- unify' newTerms1 newTerms2
-  return $ combineSubstitutions subst subst'
+  return $ combineSubstitutions subst' subst
 
 unify :: MonadPlus m => Term -> Term -> m Substitution
 unify (A a1) (A a2)

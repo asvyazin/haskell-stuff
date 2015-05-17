@@ -20,10 +20,14 @@ fromTerm (P p) = fromProposition p
 fromTerm (N p) = List [Atom "not", fromProposition p]
 
 toProposition :: Monad m => Sexp -> (Name -> m VariableName) -> m Proposition
-toProposition (Atom name) _ = return $ Proposition (toCI name) []
 toProposition (List (Atom name : sexps)) remapVar =
   liftM (Proposition (toCI name)) (mapM (`toTerm` remapVar) sexps)
+toProposition (Atom a) _ = return $ Proposition (toCI a) []
 toProposition sexps _ = fail $ "Invalid proposition: " ++ show sexps
+
+toMove :: Monad m => Sexp -> (Name -> m VariableName) -> m Move
+toMove (Atom a) _ = return $ MoveA a
+toMove sexp remapVar = liftM MoveP $ toProposition sexp remapVar
 
 toTerm :: Monad m => Sexp -> (Name -> m VariableName) -> m Term
 toTerm (Atom atom) remapVar

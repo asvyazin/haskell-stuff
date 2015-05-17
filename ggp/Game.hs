@@ -12,7 +12,6 @@ import Data.Text.Format
 import qualified Data.Text.Lazy as L
 import Language.Sexp
 
-import CIByteString
 import Database
 import Description
 import Types
@@ -45,15 +44,15 @@ getInits = Prelude.map unwrapProposition . simpleProposition "init"
 getNext :: Database -> [Proposition]
 getNext = Prelude.map unwrapProposition . simpleProposition "next"
 
-getLegalMoves :: Database -> ByteString -> [Proposition]
+getLegalMoves :: Database -> ByteString -> [Move]
 getLegalMoves database role =
   Prelude.map (unwrapMove . (! 0)) $ matchQuery database (P (Proposition "legal" [A role, V 0]))
-  where unwrapMove (P p) = p
-        unwrapMove (A a) = Proposition (toCI a) []
+  where unwrapMove (P p) = MoveP p
+        unwrapMove (A a) = MoveA a
         unwrapMove x = error $ "Invalid move: " ++ show x
 
 computeInits :: Monad m => StateT Database m ()
-computeInits = get >>= (setDynamicFacts . getInits)
+computeInits = gets (Prelude.map toTrueTerm . getInits) >>= setTrueTerms
 
 loadDatabase :: Monad m => [Sexp] -> StateT Database m ()
 loadDatabase sexps = evalStateT (mapM toFact sexps) emptyRemapState >>= setFacts >> computeInits
@@ -75,18 +74,30 @@ initGame id_ role description startclock playclock =
   let database = execState (loadDatabase description) initDatabase
   in Game id_ role startclock playclock database
 
-doPlay :: (MonadLogger m, MonadRandom m) => [Proposition] -> StateT Game m Proposition
+doPlay :: (MonadLogger m, MonadRandom m) => [Move] -> StateT Game m Move
 doPlay moves = do
-  roles <- liftM (getRoles . gameDatabase) get
+  roles <- gets (getRoles . gameDatabase)
   $(logDebug) $ L.toStrict $ "Moves: {}" `format` (Only $ Shown moves)
   case moves of
     [] -> return ()
     _ -> do
-      toGameState $ setLastMoves $ Prelude.zip roles $ Prelude.map P moves
-      nextFacts <- liftM (getNext . gameDatabase) get
-      $(logDebug) $ L.toStrict $ "Next facts: {}" `format` (Only $ Shown nextFacts)
-      modifyDatabase $ \d -> d { dynamicFacts = nextFacts }
+      let does = Prelude.zipWith toDoesTerm roles moves
+      $(logDebug) $ L.toStrict $ "Does: {}" `format` (Only $ Shown does)
+      toGameState $ setDoesTerms does
+      true <- gets (Prelude.map toTrueTerm . getNext . gameDatabase)
+      $(logDebug) $ L.toStrict $ "True: {}" `format` (Only $ Shown true)
+      toGameState $ setTrueTerms true
   game <- get
   let legalMoves = getLegalMoves (gameDatabase game) (gameRole game)
   $(logDebug) $ L.toStrict $ "Legal moves: {}" `format` (Only $ Shown legalMoves)
   uniform legalMoves
+
+toDoesTerm :: ByteString -> Move -> Term
+toDoesTerm role move =
+  let moveTerm = case move of
+        MoveP p -> P p
+        MoveA a -> A a
+  in P (Proposition "does" [A role, moveTerm])
+
+toTrueTerm :: Proposition -> Term
+toTrueTerm p = P (Proposition "true" [P p])

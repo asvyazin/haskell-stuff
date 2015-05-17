@@ -25,6 +25,7 @@ import System.Environment
 import Description
 import Game
 import Protocol
+import Types
 
 type Games = M.Map B.ByteString Game
 
@@ -50,17 +51,19 @@ readMessage req = sourceRequestBody req =$= logConduit =$= conduitParser sexpPar
 processMessage :: (MonadIO m, MonadLogger m, MonadRandom m) => Message -> TMVar Games -> m Sexp
 processMessage Info _ = return $ Atom "available"
 processMessage (Preview _ _) _ = undefined
-processMessage (Start id_ role description startclock playclock) var =
+processMessage (Start id_ role description startclock playclock) var = do
   let game = initGame id_ role description startclock playclock
-  in do liftIO $ atomically $ setGame var id_ game
-        return $ Atom "ready"
+  liftIO $ atomically $ setGame var id_ game
+  return $ Atom "ready"
 processMessage (Play id_ moves) var = do
   game <- liftIO $ atomically $ getGame var id_
-  parsedMoves <- mapM (`toProposition` failVariable) moves
+  parsedMoves <- mapM (`toMove` failVariable) moves
   (move, newGame) <- runStateT (doPlay parsedMoves) game
   liftIO $ atomically $ setGame var id_ newGame
-  return $ fromProposition move
+  return $ fromMove move
     where failVariable _ = fail "Variable is not possible here"
+          fromMove (MoveP p) = fromProposition p
+          fromMove (MoveA a) = Atom a
 processMessage (Stop id_ _) var = do
   liftIO $ atomically $ deleteGame var id_
   return $ Atom "done"

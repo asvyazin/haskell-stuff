@@ -4,7 +4,6 @@ module Database where
 
 import Control.Monad.Logic
 import Control.Monad.State
-import qualified Data.ByteString.Lazy as B
 import qualified Data.Foldable as F
 import Data.List
 import qualified Data.Map as M
@@ -14,65 +13,44 @@ import Types
 import Unify
 
 data Database = Database { facts :: [Fact]
-                         , dynamicFacts :: [Proposition]
-                         , lastMoves :: M.Map B.ByteString Term
-                         , customPropositions :: M.Map Name (Database -> [Term] -> [Substitution]) }
+                         , doesTerms :: [Term]
+                         , trueTerms :: [Term] }
+                deriving (Eq, Show)
 
 setFacts :: Monad m => [Fact] -> StateT Database m ()
 setFacts fs = modify $ \s -> s { facts = fs }
 
-addDynamicFact :: Monad m => Proposition -> StateT Database m ()
-addDynamicFact p = modify $ \s -> s { dynamicFacts = p : dynamicFacts s }
+setDoesTerms :: Monad m => [Term] -> StateT Database m ()
+setDoesTerms ts = modify $ \s -> s { doesTerms = ts }
 
-setDynamicFacts :: Monad m => [Proposition] -> StateT Database m ()
-setDynamicFacts p = modify $ \s -> s { dynamicFacts = p }
-
-setLastMoves :: Monad m => [(B.ByteString, Term)] -> StateT Database m ()
-setLastMoves pairs = modify $ \s -> s { lastMoves = M.fromList pairs }
+setTrueTerms :: Monad m => [Term] -> StateT Database m ()
+setTrueTerms ts = modify $ \s -> s { trueTerms = ts }
 
 initDatabase :: Database
-initDatabase = Database [] [] M.empty $
-               M.fromList [("distinct", ggpDistinct), ("true", ggpTrue), ("does", ggpDoes)]
-  where ggpDistinct _ [t1, t2] | t1 /= t2 = [M.empty]
-                               | otherwise = []
-        ggpDistinct _ _ = error "Distinct. Invalid arguments"
-        ggpTrue d [t] = uniqL $ observeAll $ tryMatchDynamicFacts (toMonadPlus $ dynamicFacts d) t
-        ggpTrue _ _ = error "True. Invalid arguments"
-        ggpDoes d [A role, termMove] = case M.lookup role (lastMoves d) of
-          Nothing -> []
-          Just lastMove -> uniqL $ observeAll $ unify termMove lastMove
-        ggpDoes d [V role, termMove] = uniqL $ observeAll $ do
-          (r, move) <- toMonadPlus $ M.toList (lastMoves d)
-          let subst' = M.fromList [(role, A r)]
-          let move' = apply subst' move
-          unify termMove move'
-        ggpDoes _ x = error $ "Does. Invalid arguments: " ++ show x
+initDatabase = Database [] [] []
 
 matchQuery :: Database -> Term -> [Substitution]
 matchQuery database = uniqL . observeAll . doMatchQuery database
 
 doMatchQuery :: MonadLogic m => Database -> Term -> m Substitution
-doMatchQuery database query = tryMatchCustomProposition database query
-                            `interleave`
-                            tryMatchFacts database query
+doMatchQuery database query = case query of
+    (P (Proposition name args))
+      | name == "true" -> toMonadPlus (trueTerms database) >>= unify query
+      | name == "does" -> toMonadPlus (doesTerms database) >>= unify query
+      | name == "distinct" -> case args of
+        [t1, t2]
+          | t1 /= t2 -> return M.empty
+          | otherwise -> mzero
+        _ -> mzero
+      | name == "not" -> case args of
+        [t] -> lnot (once (doMatchQuery database t)) >> return M.empty
+        _ -> mzero
+    _ -> tryMatchFacts database query
 
 tryMatchFacts :: MonadLogic m => Database -> Term -> m Substitution
 tryMatchFacts database query = do
   fact <- toMonadPlus $ facts database
   matchFact database query fact
-
-tryMatchDynamicFacts :: MonadLogic m => m Proposition -> Term -> m Substitution
-tryMatchDynamicFacts fs t@(P _) = fs >>= (unify t . P)
-tryMatchDynamicFacts fs (N p) = fs >>=
-                                (lnot . once . unify (P p) . P) >>
-                                return M.empty
-tryMatchDynamicFacts _ _ = mzero
-
-tryMatchCustomProposition :: MonadPlus m => Database -> Term -> m Substitution
-tryMatchCustomProposition database (P (Proposition name args)) = case M.lookup name (customPropositions database) of
-  Nothing -> mzero
-  Just func -> toMonadPlus (func database args)
-tryMatchCustomProposition _ _ = mzero
 
 matchFact :: MonadLogic m => Database -> Term -> Fact -> m Substitution
 matchFact _ query (FactP prop) = unify (P prop) query
@@ -83,7 +61,7 @@ matchFact database query (FactR (Rule thenPart ifPart)) = do
           in do
             s' <- case p1 of
               RuleP p2 -> doMatchQuery database (P p2)
-              RuleN p2 -> lnot (once $ doMatchQuery database (P p2)) >> return M.empty
+              RuleN p2 -> lnot (once (doMatchQuery database (P p2))) >> return M.empty
             return $ combineSubstitutions s' s) subst ifPart
     where applyToRule subst (RuleP p) = RuleP $ apply' subst p
           applyToRule subst (RuleN p) = RuleN $ apply' subst p

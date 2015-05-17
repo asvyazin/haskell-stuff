@@ -17,6 +17,8 @@ data Term = A Value -- Atom
 
 data Proposition = Proposition Name [Term] deriving (Eq, Show, Ord)
 
+data Move = MoveP Proposition | MoveA Value deriving (Eq, Show, Ord)
+
 data RuleProposition = RuleP Proposition -- Proposition
                      | RuleN Proposition -- Negation
                      deriving (Eq, Show)
