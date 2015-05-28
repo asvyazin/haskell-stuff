@@ -4,11 +4,12 @@ let
 
    env = pkgs.haskell-ng.packages.ghc784.ghcWithPackages (p: with p; [
      sexp wai wai-conduit warp conduit-extra conduit-combinators logict stm monad-logger text-format MonadRandom
+     ghc-mod
    ]);
 in
 
  pkgs.stdenv.mkDerivation {
-   name = "rosalind.hs";
+   name = "ggp";
    doCheck = false;
    doHaddock = false;
    buildInputs = [ env ];
